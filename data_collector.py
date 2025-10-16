@@ -76,17 +76,50 @@ class StockDataCollector:
         }
         
         try:
-            response = requests.get(self.base_url, params=params)
+            response = requests.get(self.base_url, params=params, timeout=30)
             data = response.json()
             
+            # Check for various error types
             if 'Error Message' in data:
-                raise ValueError(f"API Error: {data['Error Message']}")
+                error_msg = data['Error Message']
+                # Provide helpful suggestions based on error
+                if 'Invalid API call' in error_msg:
+                    raise ValueError(
+                        f"Invalid API call for symbol '{symbol}'. "
+                        f"Common issues:\n"
+                        f"1. Symbol format - Try without exchange suffix (e.g., 'RELIANCE' instead of 'RELIANCE.BSE')\n"
+                        f"2. Symbol doesn't exist on Alpha Vantage\n"
+                        f"3. API key may be invalid\n\n"
+                        f"Popular symbols: AAPL, MSFT, GOOGL, AMZN, TSLA, RELIANCE, TCS, INFY"
+                    )
+                else:
+                    raise ValueError(f"API Error: {error_msg}")
             
             if 'Note' in data:
-                raise ValueError("API rate limit reached. Please wait a moment.")
+                raise ValueError(
+                    "API rate limit reached. Alpha Vantage free tier allows 5 API calls per minute.\n"
+                    "Please wait 60 seconds and try again, or upgrade to a premium API key."
+                )
+            
+            if 'Information' in data:
+                info_msg = data['Information']
+                raise ValueError(f"API Information: {info_msg}")
             
             if 'Time Series (Daily)' not in data:
-                raise ValueError(f"No data available for symbol: {symbol}")
+                # Try to provide helpful error message
+                if 'Meta Data' in data:
+                    raise ValueError(
+                        f"Unexpected data format for symbol '{symbol}'. "
+                        f"The API returned data but not in the expected format."
+                    )
+                else:
+                    raise ValueError(
+                        f"No data available for symbol '{symbol}'.\n"
+                        f"Try using the base symbol without exchange suffix:\n"
+                        f"- Use 'AAPL' instead of 'AAPL.NASDAQ'\n"
+                        f"- Use 'RELIANCE' instead of 'RELIANCE.BSE'\n"
+                        f"- Use 'TCS' instead of 'TCS.BSE'"
+                    )
             
             # Convert to DataFrame
             df = pd.DataFrame(data['Time Series (Daily)']).T
@@ -96,6 +129,12 @@ class StockDataCollector:
             
             return df.sort_index()
             
+        except requests.exceptions.Timeout:
+            raise Exception("Request timeout. Please check your internet connection and try again.")
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"Network error: {str(e)}")
+        except ValueError as e:
+            raise e
         except Exception as e:
             raise Exception(f"Error fetching data: {str(e)}")
     
